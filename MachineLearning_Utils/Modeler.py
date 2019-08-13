@@ -1,4 +1,4 @@
-from sklearn.metrics import f1_score, precision_score, recall_score, mean_absolute_error, mean_squared_error, r2_score, explained_variance_score, accuracy_score, roc_curve, auc
+from sklearn.metrics import f1_score, precision_score, recall_score, mean_absolute_error, mean_squared_error, r2_score, explained_variance_score, accuracy_score, roc_curve, auc, confusion_matrix
 import matplotlib.pyplot as plt
 from itertools import combinations
 from sklearn.base import ClassifierMixin, BaseEstimator, RegressorMixin
@@ -47,7 +47,7 @@ class SupervisedLearner(BaseEstimator,RegressorMixin,ClassifierMixin):
 
     These Sci-kit model objects can be the models themselves e.g. Linear Regression or any hyper-paramter tuning object such as GridSearchCV
     """
-    classifier_scorers = (f1_score, accuracy_score, precision_score, recall_score)
+    classifier_scorers = (f1_score, accuracy_score, precision_score, recall_score, confusion_matrix)
     regressor_scorers = (mean_squared_error, mean_absolute_error, r2_score, explained_variance_score)
 
     def __init__(self, model_list=[], logs=True):
@@ -74,6 +74,12 @@ class SupervisedLearner(BaseEstimator,RegressorMixin,ClassifierMixin):
             self.models = {}
 
     def add_model(self,model):
+        if not hasattr(SupervisedLearner,'estimator_type'):
+            self.estimator_type = model._estimator_type
+        elif hasattr(SupervisedLearner, 'estimator_type'):
+            if self.estimator_type != model._estimator_type:
+                raise ValueError("Model must be of same estimator type as other models placed within the SupervisedLearner object.")
+
         if str(model).split('(')[0] == "GridSearchCV":
             name = str(model.estimator).split('(')[0]
         else:
@@ -101,8 +107,12 @@ class SupervisedLearner(BaseEstimator,RegressorMixin,ClassifierMixin):
     def predict(self, X):
         predictions = {}
         try:
-            for name, model in self._models.items():
-                predictions[name] = model.predict(X)
+            if self.estimator_type == 'classifier':
+                for name, model in self._models.items():
+                    predictions[name] = model.predict_proba(X)
+            else:
+                for name, model in self._models.items():
+                    predictions[name] = model.predict(X)
             return predictions
         except AttributeError as e:
             raise ValueError("Error encountered while running predict. Check to see if models have been fitted. Error message: {}".format(e))

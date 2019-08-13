@@ -15,6 +15,7 @@ from termcolor import colored
 import threading
 import itertools
 import time
+from copy import deepcopy
 
 
 def log_waiting(func_name):
@@ -267,6 +268,21 @@ class DataProcessor:
         return cls(X={'X_train': X_train, 'X_val': X_val, 'X_test': X_test},
                    Y={'Y_train': Y_train, 'Y_val': Y_val, 'Y_test': Y_test})
 
+    @classmethod
+    def load_pandas(cls, X, split=(0.6,0.2,0.2), target_variable=None, random_seed=0):
+        np.random.seed(random_seed)
+
+        train_test_total = split[1] + split[2]
+
+        Y = X[target_variable]
+        X.drop(target_variable, inplace=True, axis=1)
+
+        X_train, X_temp, Y_train, Y_temp = train_test_split(X, Y, train_size=split[0], shuffle=True, random_state=random_seed)
+        X_val, X_test, Y_val, Y_test = train_test_split(X_temp, Y_temp, train_size=split[1]/train_test_total, shuffle=True, random_state=random_seed)
+
+        return cls(X={'X_train': X_train, 'X_val': X_val, 'X_test': X_test},
+                   Y={'Y_train': Y_train, 'Y_val': Y_val, 'Y_test': Y_test})
+
     def get_datasets(self):
         log1 = False
         log2 = False
@@ -431,7 +447,7 @@ class DataProcessor:
             if cardinality is None:
                 raise ValueError("Expected numeric value for Cardinality for label encoding method 'one_hot'")
             cardinality_cols = [col for col in object_cols if self._X_train[col].nunique() < cardinality]
-            encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
+            self.one_hot_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
 
             for col in cardinality_cols:
                 try:
@@ -444,9 +460,9 @@ class DataProcessor:
                     self._X_test_transformed[col][self._X_test[col].isna()] = 'NaN'
 
             try:
-                train_handler = pd.DataFrame(encoder.fit_transform(self._X_train_transformed[cardinality_cols]))
-                val_handler = pd.DataFrame(encoder.transform(self._X_val_transformed[cardinality_cols]))
-                test_handler = pd.DataFrame(encoder.transform(self._X_test_transformed[cardinality_cols]))
+                train_handler = pd.DataFrame(self.one_hot_encoder.fit_transform(self._X_train_transformed[cardinality_cols]))
+                val_handler = pd.DataFrame(self.one_hot_encoder.transform(self._X_val_transformed[cardinality_cols]))
+                test_handler = pd.DataFrame(self.one_hot_encoder.transform(self._X_test_transformed[cardinality_cols]))
 
                 train_handler.index = self._X_train_transformed.index
                 val_handler.index = self._X_val_transformed.index
@@ -461,9 +477,9 @@ class DataProcessor:
                 self._X_test_transformed = pd.concat([self._X_test_transformed, test_handler], axis=1)
 
             except AttributeError:
-                train_handler = pd.DataFrame(encoder.fit_transform(self._X_train[cardinality_cols]))
-                val_handler = pd.DataFrame(encoder.fit_transform(self._X_val[cardinality_cols]))
-                test_handler = pd.DataFrame(encoder.fit_transform(self._X_test[cardinality_cols]))
+                train_handler = pd.DataFrame(self.one_hot_encoder.fit_transform(self._X_train[cardinality_cols]))
+                val_handler = pd.DataFrame(self.one_hot_encoder.fit_transform(self._X_val[cardinality_cols]))
+                test_handler = pd.DataFrame(self.one_hot_encoder.fit_transform(self._X_test[cardinality_cols]))
 
                 train_handler.index = self._X_train.index
                 val_handler.index = self._X_val.index
@@ -478,6 +494,7 @@ class DataProcessor:
                 self._X_test_transformed = pd.concat([x_test_handle, test_handler], axis=1)
 
         elif encoding_type == 'label':
+            self.label_encoders = list()
             encoder = LabelEncoder()
 
             try:
@@ -496,6 +513,7 @@ class DataProcessor:
                     self._X_train_transformed[col] = encoder.transform(self._X_train_transformed[col])
                     self._X_val_transformed[col] = encoder.transform(self._X_val_transformed[col])
                     self._X_test_transformed[col] = encoder.transform(self._X_test_transformed[col])
+                    self.label_encoders.append(deepcopy(encoder))
             except AttributeError:
                 self._X_train_transformed = self._X_train
                 self._X_val_transformed = self._X_val
@@ -510,6 +528,7 @@ class DataProcessor:
                     self._X_train_transformed[col] = encoder.transform(self._X_train_transformed[col])
                     self._X_val_transformed[col] = encoder.transform(self._X_val_transformed[col])
                     self._X_test_transformed[col] = encoder.transform(self._X_test_transformed[col])
+                    self.label_encoders.append(deepcopy(encoder))
         elif encoding_type == 'binary':
             try:
                 object_cols = [col for col in self._X_train_transformed if self._X_train_transformed[col].dtype == 'object']
@@ -517,6 +536,7 @@ class DataProcessor:
                 object_cols = [col for col in self._X_train if self._X_train[col].dtype == 'object']
 
             binary_cols = [col for col in object_cols if self._X_train[col].nunique() == 2]
+            self.binarizers = list()
             binarizer = LabelBinarizer()
 
             try:
@@ -524,6 +544,7 @@ class DataProcessor:
                     self._X_train_transformed[col] = binarizer.fit_transform(self._X_train_transformed[col])
                     self._X_val_transformed[col] = binarizer.transform(self._X_val_transformed[col])
                     self._X_test_transformed[col] = binarizer.transform(self._X_test_transformed[col])
+                    self.binarizers.append(deepcopy(binarizer))
             except AttributeError:
                 self._X_train_transformed = self._X_train
                 self._X_val_transformed = self._X_val
@@ -532,6 +553,7 @@ class DataProcessor:
                     self._X_train_transformed[col] = binarizer.fit_transform(self._X_train_transformed[col])
                     self._X_val_transformed[col] = binarizer.transform(self._X_val_transformed[col])
                     self._X_test_transformed[col] = binarizer.transform(self._X_test_transformed[col])
+                    self.binarizers.append(deepcopy(binarizer))
         elif encoding_type == 'sum':
             try:
                 object_cols = [col for col in self._X_train_transformed if self._X_train_transformed[col].dtype == 'object']
@@ -543,19 +565,19 @@ class DataProcessor:
                 UserWarning("column_names was left 'None'. Using Object data type columns ")
                 #raise ValueError("Column names must be supplied when using ")
 
-            encoder = ce.sum_coding.SumEncoder(cols=list(column_names))
+            self.sum_encoder = ce.sum_coding.SumEncoder(cols=list(column_names))
             try:
-                self._X_train_transformed = encoder.fit_transform(self._X_train_transformed)
-                self._X_val_transformed = encoder.transform(self._X_val_transformed)
-                self._X_test_transformed = encoder.transform(self._X_test_transformed)
+                self._X_train_transformed = self.sum_encoderencoder.fit_transform(self._X_train_transformed)
+                self._X_val_transformed = self.sum_encoderencoder.transform(self._X_val_transformed)
+                self._X_test_transformed = self.sum_encoderencoder.transform(self._X_test_transformed)
             except AttributeError:
                 self._X_train_transformed = self._X_train
                 self._X_val_transformed = self._X_val
                 self._X_test_transformed = self._X_test
 
-                self._X_train_transformed = encoder.fit_transform(self._X_train_transformed)
-                self._X_val_transformed = encoder.transform(self._X_val_transformed)
-                self._X_test_transformed = encoder.transform(self._X_test_transformed)
+                self._X_train_transformed = self.sum_encoderencoder.fit_transform(self._X_train_transformed)
+                self._X_val_transformed = self.sum_encoderencoder.transform(self._X_val_transformed)
+                self._X_test_transformed = self.sum_encoderencoder.transform(self._X_test_transformed)
 
         elif encoding_type == 'helmert':
             try:
@@ -568,19 +590,19 @@ class DataProcessor:
                 UserWarning("column_names was left 'None'. Using Object data type columns ")
                 #raise ValueError("Column names must be supplied when using ")
 
-            encoder = ce.helmert.HelmertEncoder(cols=list(column_names))
+            self.helmert_encoder = ce.helmert.HelmertEncoder(cols=list(column_names))
             try:
-                self._X_train_transformed = encoder.fit_transform(self._X_train_transformed)
-                self._X_val_transformed = encoder.transform(self._X_val_transformed)
-                self._X_test_transformed = encoder.transform(self._X_test_transformed)
+                self._X_train_transformed = self.helmert_encoder.fit_transform(self._X_train_transformed)
+                self._X_val_transformed = self.helmert_encoder.transform(self._X_val_transformed)
+                self._X_test_transformed = self.helmert_encoder.transform(self._X_test_transformed)
             except AttributeError:
                 self._X_train_transformed = self._X_train
                 self._X_val_transformed = self._X_val
                 self._X_test_transformed = self._X_test
 
-                self._X_train_transformed = encoder.fit_transform(self._X_train_transformed)
-                self._X_val_transformed = encoder.transform(self._X_val_transformed)
-                self._X_test_transformed = encoder.transform(self._X_test_transformed)
+                self._X_train_transformed = self.helmert_encoder.fit_transform(self._X_train_transformed)
+                self._X_val_transformed = self.helmert_encoder.transform(self._X_val_transformed)
+                self._X_test_transformed = self.helmert_encoder.transform(self._X_test_transformed)
         elif encoding_type =='backward_difference':
             try:
                 object_cols = [col for col in self._X_train_transformed if self._X_train_transformed[col].dtype == 'object']
@@ -592,19 +614,19 @@ class DataProcessor:
                 UserWarning("column_names was left 'None'. Using Object data type columns ")
                 #raise ValueError("Column names must be supplied when using ")
 
-            encoder = ce.backward_difference.BackwardDifferenceEncoder(cols=list(column_names))
+            self.backward_encoder = ce.backward_difference.BackwardDifferenceEncoder(cols=list(column_names))
             try:
-                self._X_train_transformed = encoder.fit_transform(self._X_train_transformed)
-                self._X_val_transformed = encoder.transform(self._X_val_transformed)
-                self._X_test_transformed = encoder.transform(self._X_test_transformed)
+                self._X_train_transformed = self.backward_encoder.fit_transform(self._X_train_transformed)
+                self._X_val_transformed = self.backward_encoder.transform(self._X_val_transformed)
+                self._X_test_transformed = self.backward_encoder.transform(self._X_test_transformed)
             except AttributeError:
                 self._X_train_transformed = self._X_train
                 self._X_val_transformed = self._X_val
                 self._X_test_transformed = self._X_test
 
-                self._X_train_transformed = encoder.fit_transform(self._X_train_transformed)
-                self._X_val_transformed = encoder.transform(self._X_val_transformed)
-                self._X_test_transformed = encoder.transform(self._X_test_transformed)
+                self._X_train_transformed = self.backward_encoder.fit_transform(self._X_train_transformed)
+                self._X_val_transformed = self.backward_encoder.transform(self._X_val_transformed)
+                self._X_test_transformed = self.backward_encoder.transform(self._X_test_transformed)
 
     def pipeline(self, steps):
         """
