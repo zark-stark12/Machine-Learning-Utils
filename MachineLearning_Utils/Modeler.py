@@ -8,6 +8,7 @@ import sys
 import os
 from copy import deepcopy
 from math import sqrt
+from sklearn.exceptions import NotFittedError
 
 def RMSE(y_true, y_pred):
     return np.sqrt(((y_true - y_pred) ** 2 ).mean())
@@ -73,7 +74,7 @@ class SupervisedLearner(BaseEstimator,RegressorMixin,ClassifierMixin):
         else:
             self.models = {}
 
-    def add_model(self,model):
+    def add_model(self,model, preTrained=False):
         if not hasattr(SupervisedLearner,'estimator_type'):
             self.estimator_type = model._estimator_type
         elif hasattr(SupervisedLearner, 'estimator_type'):
@@ -85,8 +86,20 @@ class SupervisedLearner(BaseEstimator,RegressorMixin,ClassifierMixin):
         else:
             name = str(model).split('(')[0]
 
-        if name not in self.models:
+        if name not in self.models and not preTrained:
             self.models[name] = model
+            logging.info("Successfully added model: {}".format(name))
+            logging.info("...............................................")
+        elif name not in self.models and preTrained:
+            try:
+                self._models[name] = model
+                logging.info("Successfully added model that is Pre-Trained: {}".format(name))
+                logging.info("...............................................")
+            except AttributeError:
+                self._models = {}
+                self._models[name] = model
+                logging.info("Successfully added model that is Pre-Trained: {}".format(name))
+                logging.info("...............................................")
         else:
             raise KeyError("{} already exists.".format(name))
 
@@ -96,12 +109,21 @@ class SupervisedLearner(BaseEstimator,RegressorMixin,ClassifierMixin):
         except KeyError:
             raise KeyError("Key value for model name: {}, does not exist.".format(name))
 
-    def fit(self,X,Y):
+    def fit(self, X, Y):
         logging.info("Fitting data on ")
         logging.info("...............................................")
-        self._models = deepcopy(self.models)
-        for model in self._models.values():
+        if not hasattr(SupervisedLearner, '_models'):
+            self._models = deepcopy(self.models)
+        elif hasattr(SupervisedLearner, '_models'):
+            for name in self.models.keys():
+                if name not in self._models:
+                    self._models[name] = deepcopy(self.models[name])
+
+        for name,model in self._models.items():
+            logging.info("Model - {}".format(name))
             model.fit(X,Y)
+        logging.info("Completed Fitting")
+        logging.info("...............................................")
         return self
 
     def predict(self, X):
@@ -158,7 +180,11 @@ class MetaLearner(SupervisedLearner):
             self._X_meta = np.column_stack((self._X_meta, self._X_meta[:,combo].mean(axis=1)))
 
         self._meta_model = deepcopy(self.meta_model)
+        logging.info("Fitting Meta Learner")
+        logging.info("...............................................")
         self._meta_model.fit(self._X_meta,Y)
+        logging.info("Meta Learner Fitted")
+        logging.info("...............................................")
 
     def meta_predict(self, X):
         logging.info("Predicting outcomes for Meta Learner")
